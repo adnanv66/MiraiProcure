@@ -1,9 +1,15 @@
-# MiraiProcure (未来プロキュア)
+## 🌐 MiraiProcure (未来プロキュア)
 
-> **Tagline:** From Intent to Invoice — AI-powered procurement with humans in control.
+> **Live Deployed App:** [https://miraiprocure.onrender.com](https://miraiprocure.onrender.com)  
+> **Tagline:** From Intent to Invoice — AI-powered procurement with humans in control.  
 > **Primary Concept:** Next-Generation AI Procurement Operating System (AI Procurement ERP)
 
 ---
+
+## 🚀 Live Public Deployment
+- **Public Application URL:** [https://miraiprocure.onrender.com](https://miraiprocure.onrender.com)
+- **Login / Sign In Page:** [https://miraiprocure.onrender.com/login](https://miraiprocure.onrender.com/login)
+- **GitHub Repository:** [https://github.com/adnanv66/MiraiProcure](https://github.com/adnanv66/MiraiProcure)
 
 ## 🌟 Overview & Key Features
 
