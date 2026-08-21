@@ -7,12 +7,13 @@ ENV NODE_ENV=production
 
 # 2. Dependencies
 FROM base AS deps
-RUN apk add --no-libc6-compat
+RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # 3. Builder
 FROM base AS builder
+WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -21,6 +22,7 @@ RUN npm run build
 
 # 4. Runner
 FROM base AS runner
+WORKDIR /app
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
