@@ -1,0 +1,529 @@
+// MiraiProcure (未来プロキュア) Database Schema
+// Optimized for PostgreSQL and Serverless Vercel Deployment
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  PROCUREMENT_MANAGER
+  PROCUREMENT_OFFICER
+  FINANCE_MANAGER
+  INVENTORY_MANAGER
+  APPROVER
+  SUPPLIER
+}
+
+enum PRStatus {
+  DRAFT
+  SUBMITTED
+  AI_PROCESSING
+  RFQ_CREATED
+  AWAITING_APPROVAL
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum RFQStatus {
+  DRAFT
+  PUBLISHED
+  RESPONSES_RECEIVED
+  EVALUATION
+  RECOMMENDATION
+  AWARDED
+  CLOSED
+}
+
+enum QuoteStatus {
+  RECEIVED
+  UNDER_REVIEW
+  ANALYZED
+  RECOMMENDED
+  ACCEPTED
+  REJECTED
+}
+
+enum POStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  ACKNOWLEDGED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CLOSED
+}
+
+enum MatchStatus {
+  MATCHED
+  MISMATCH_DETECTED
+  PENDING_RECEIPT
+  RESOLVED
+}
+
+enum RiskSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum GovernanceLevel {
+  LEVEL_1_ASSIST
+  LEVEL_2_SEMI_AUTONOMOUS
+  LEVEL_3_GOVERNED_AUTONOMOUS
+}
+
+model Organization {
+  id              String   @id @default(uuid())
+  name            String
+  japaneseName    String?  @default("MiraiProcure Corporation")
+  domain          String?
+  governanceLevel GovernanceLevel @default(LEVEL_2_SEMI_AUTONOMOUS)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  users           User[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  name           String
+  passwordHash   String?
+  role           Role         @default(PROCUREMENT_OFFICER)
+  department     String?      @default("Procurement")
+  avatarUrl      String?
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  purchaseRequests PurchaseRequest[] @relation("Requester")
+  approvals        Approval[]        @relation("Approver")
+  auditLogs        AuditLog[]
+  aiConversations  AIConversation[]
+  aiActions        AIAction[]
+  notifications    Notification[]
+}
+
+model Supplier {
+  id                  String   @id @default(uuid())
+  code                String   @unique
+  companyName         String
+  contactName         String
+  email               String
+  phone               String
+  location            String
+  industry            String
+  taxId               String?  // GST / Tax Number
+  certifications      String?  // ISO 9001, ESG, etc.
+  categories          String?  // Electronics, IT Hardware, etc.
+  paymentTerms        String   @default("Net 30")
+  deliveryScore       Float    @default(85.0)
+  qualityScore        Float    @default(90.0)
+  riskScore           Float    @default(15.0) // Lower is better
+  sustainabilityScore Float    @default(80.0)
+  status              String   @default("ACTIVE") // ACTIVE, ONBOARDING, SUSPENDED
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  documents      SupplierDocument[]
+  risks          SupplierRisk[]
+  rfqSuppliers   RFQSupplier[]
+  quotations     Quotation[]
+  purchaseOrders PurchaseOrder[]
+  invoices       Invoice[]
+  contracts      Contract[]
+}
+
+model SupplierDocument {
+  id                 String   @id @default(uuid())
+  supplierId         String
+  supplier           Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  documentType       String   // GST Certificate, ISO 9001, Bank Verification
+  fileName           String
+  fileUrl            String
+  expiryDate         DateTime?
+  verificationStatus String   @default("VERIFIED") // VERIFIED, PENDING, EXPIRED
+  uploadedAt         DateTime @default(now())
+}
+
+model SupplierRisk {
+  id          String       @id @default(uuid())
+  supplierId  String
+  supplier    Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  riskType    String       // Financial, Delivery, Compliance, Anomaly
+  severity    RiskSeverity @default(LOW)
+  score       Float
+  title       String
+  description String
+  aiSignal    String?
+  createdAt   DateTime     @default(now())
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  code        String    @unique
+  description String?
+  products    Product[]
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  sku           String   @unique
+  name          String
+  description   String?
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id])
+  targetPrice   Float
+  marketMin     Float    @default(0.0)
+  marketMax     Float    @default(0.0)
+  unit          String   @default("Units")
+  currentStock  Int      @default(0)
+  reservedStock Int      @default(0)
+  reorderLevel  Int      @default(10)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  inventory           Inventory[]
+  purchaseRequestItems PurchaseRequestItem[]
+  rfqItems            RFQItem[]
+  purchaseOrderItems  PurchaseOrderItem[]
+}
+
+model PurchaseRequest {
+  id             String   @id @default(uuid())
+  prNumber       String   @unique
+  title          String
+  requesterId    String
+  requester      User     @relation("Requester", fields: [requesterId], references: [id])
+  department     String
+  category       String
+  quantity       Int
+  estimatedUnit  Float
+  totalBudget    Float
+  priority       String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status         PRStatus @default(SUBMITTED)
+  justification  String
+  requiredBy     DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  items PurchaseRequestItem[]
+  rfqs  RFQ[]
+}
+
+model PurchaseRequestItem {
+  id                String          @id @default(uuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  productId         String?
+  product           Product?        @relation(fields: [productId], references: [id])
+  description       String
+  quantity          Int
+  unitPrice         Float
+  totalPrice        Float
+}
+
+model RFQ {
+  id                String    @id @default(uuid())
+  rfqNumber         String    @unique
+  title             String
+  purchaseRequestId String?
+  purchaseRequest   PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
+  category          String
+  deadline          DateTime
+  targetBudget      Float
+  deliveryDays      Int       @default(15)
+  requirements      String
+  status            RFQStatus @default(PUBLISHED)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  items         RFQItem[]
+  rfqSuppliers  RFQSupplier[]
+  quotations    Quotation[]
+  quoteAnalyses QuoteAnalysis[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model RFQItem {
+  id          String   @id @default(uuid())
+  rfqId       String
+  rfq         RFQ      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+  description String
+  quantity    Int
+  targetPrice Float
+}
+
+model RFQSupplier {
+  id         String   @id @default(uuid())
+  rfqId      String
+  rfq        RFQ      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  sentAt     DateTime @default(now())
+  status     String   @default("INVITED") // INVITED, RESPONDED, DECLINED
+}
+
+model Quotation {
+  id                String      @id @default(uuid())
+  quoteNumber       String      @unique
+  rfqId             String
+  rfq               RFQ         @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplierId        String
+  supplier          Supplier    @relation(fields: [supplierId], references: [id])
+  unitPrice         Float
+  quantity          Int
+  shippingCost      Float       @default(0.0)
+  taxCost           Float       @default(0.0)
+  discountAmount    Float       @default(0.0)
+  totalLandedCost   Float
+  deliveryDays      Int
+  warrantyMonths    Int         @default(12)
+  paymentTerms      String      @default("Net 30")
+  status            QuoteStatus @default(RECEIVED)
+  isAnomaly         Boolean     @default(false)
+  anomalyReason     String?
+  pdfUrl            String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  items       QuotationItem[]
+  vendorScore VendorScore?
+}
+
+model QuotationItem {
+  id          String    @id @default(uuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Int
+  unitPrice   Float
+  totalPrice  Float
+}
+
+model VendorScore {
+  id                    String    @id @default(uuid())
+  quotationId           String    @unique
+  quotation             Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  supplierId            String
+  priceScore            Float
+  deliveryScore         Float
+  qualityScore          Float
+  warrantyScore         Float
+  riskScore             Float
+  pastPerformanceScore Float
+  sustainabilityScore   Float
+  compositeScore        Float
+  rank                  Int
+  weightsJson           String    // Stored JSON configuration of weights
+  createdAt             DateTime  @default(now())
+}
+
+model QuoteAnalysis {
+  id                    String   @id @default(uuid())
+  rfqId                 String
+  rfq                   RFQ      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  recommendedSupplierId String
+  savingsPercentage     Float
+  estimatedSavings      Float
+  explanation           String
+  tradeoffs             String
+  confidenceScore       Float    @default(0.92)
+  createdAt             DateTime @default(now())
+}
+
+model Approval {
+  id              String   @id @default(uuid())
+  entityType      String   // PR, RFQ, PO, SUPPLIER
+  entityId        String
+  entityNumber    String
+  title           String
+  amount          Float
+  stepNumber      Int      @default(1)
+  approverId      String?
+  approver        User?    @relation("Approver", fields: [approverId], references: [id])
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  comments        String?
+  requestedAt     DateTime @default(now())
+  decidedAt       DateTime?
+}
+
+model PurchaseOrder {
+  id              String   @id @default(uuid())
+  poNumber        String   @unique
+  rfqId           String?
+  rfq             RFQ?     @relation(fields: [rfqId], references: [id])
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id])
+  totalAmount     Float
+  taxAmount       Float    @default(0.0)
+  landedCost      Float
+  deliveryDate    DateTime
+  paymentTerms    String   @default("Net 30")
+  status          POStatus @default(DRAFT)
+  approvalStatus  String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  generatedByAI   Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items    PurchaseOrderItem[]
+  invoices Invoice[]
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       String?
+  product         Product?      @relation(fields: [productId], references: [id])
+  description     String
+  quantity        Int
+  unitPrice       Float
+  totalPrice      Float
+}
+
+model Inventory {
+  id            String   @id @default(uuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  warehouse     String   @default("Central Hub - TechWarehouse 1")
+  quantity      Int
+  reservedStock Int      @default(0)
+  reorderPoint  Int      @default(50)
+  status        String   @default("OPTIMAL") // OPTIMAL, LOW_STOCK, CRITICAL, REORDER_RECOMMENDED
+  updatedAt     DateTime @updatedAt
+
+  transactions InventoryTransaction[]
+}
+
+model InventoryTransaction {
+  id          String    @id @default(uuid())
+  inventoryId String
+  inventory   Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  type        String    // INBOUND, OUTBOUND, RESERVED, ADJUSTMENT
+  quantity    Int
+  reference   String?   // PO Number or Order ID
+  notes       String?
+  createdAt   DateTime  @default(now())
+}
+
+model Invoice {
+  id                    String      @id @default(uuid())
+  invoiceNumber         String      @unique
+  purchaseOrderId       String
+  purchaseOrder         PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  supplierId            String
+  supplier              Supplier    @relation(fields: [supplierId], references: [id])
+  invoiceAmount         Float
+  poAmount              Float
+  goodsReceivedQuantity Int
+  invoicedQuantity      Int
+  threeWayMatchStatus   MatchStatus @default(MATCHED)
+  discrepancyReason     String?
+  paymentStatus         String      @default("PENDING") // PENDING, RELEASED, HELD
+  dueDate               DateTime
+  createdAt             DateTime    @default(now())
+}
+
+model Contract {
+  id               String   @id @default(uuid())
+  contractNumber   String   @unique
+  supplierId       String
+  supplier         Supplier @relation(fields: [supplierId], references: [id])
+  title            String
+  contractValue    Float
+  startDate        DateTime
+  endDate          DateTime
+  renewalDate      DateTime
+  expiryAlertDays  Int      @default(30)
+  slaGuarantee     String?  @default("99.5% Uptime / 24h Replacement")
+  warrantyDetails  String?  @default("3 Year On-Site Hardware Replacement")
+  status           String   @default("ACTIVE") // ACTIVE, EXPIRING_SOON, EXPIRED, RENEWED
+  createdAt        DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, WARNING, SUCCESS, ERROR, AI_ALERT
+  read      Boolean  @default(false)
+  actionUrl String?
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  userName   String   @default("System")
+  action     String
+  entity     String
+  entityId   String?
+  details    String
+  oldValue   String?
+  newValue   String?
+  aiActionId String?
+  createdAt  DateTime @default(now())
+}
+
+model AIConversation {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  contextPage String   @default("global")
+  title       String   @default("Mirai AI Assistant Session")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messages AIMessage[]
+}
+
+model AIMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         String         // USER, MIRAI_AI, SYSTEM
+  content        String
+  toolCallsJson  String?        // JSON of executed AI tools
+  toolResultJson String?        // JSON of tool outputs
+  createdAt      DateTime       @default(now())
+}
+
+model AIAction {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  actionType       String   // CREATE_PO, APPROVE_PR, ACTIVATE_SUPPLIER, RELEASE_PAYMENT
+  payloadJson      String
+  status           String   @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION, EXECUTED, CANCELLED
+  requiredApproval Boolean  @default(true)
+  confirmedBy      String?
+  createdAt        DateTime @default(now())
+}
+
+model AIRecommendation {
+  id              String   @id @default(uuid())
+  context         String
+  decision        String
+  score           Float
+  confidence      Float    @default(0.95)
+  reasonsJson     String
+  tradeoffsJson   String
+  estimatedSavings Float   @default(0.0)
+  createdAt       DateTime @default(now())
+}
